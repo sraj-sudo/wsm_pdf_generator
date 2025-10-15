@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; line-height: 1.4; }
+        .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; page-break-inside: avoid; }
+        th, td { border: 1px solid #333; padding: 8px; text-align: left; vertical-align: top; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .section { margin-bottom: 20px; page-break-inside: avoid; }
+        .section-title { font-weight: bold; font-size: 14px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        .subsection { margin-bottom: 15px; }
+        .subsection-title { font-weight: bold; margin-bottom: 5px; }
+        .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #666; border-top: 1px solid #ccc; padding-top: 10px; }
+        .page-break { page-break-before: always; }
+        .company-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .company-logo { max-width: 150px; max-height: 80px; }
+        .data-field { border-bottom: 1px dotted #999; min-height: 18px; }
+    </style>
+</head>
+<body>
+    <div class="company-header">
+        <div class="logo-placeholder">[Company Logo]</div>
+        <div>
+            <h1 style="margin: 0; font-size: 24px;">Worksheet for Manufacturing (WSM)</h1>
+            <p style="margin: 5px 0 0 0;"><strong>Project No:</strong> {{ project_no }}</p>
+        </div>
+    </div>
+
+    <div class="header">
+        <table>
+            <tr>
+                <th>WSM Type</th><td class="data-field">{{ wsm_type }}</td>
+                <th>Boiler Type</th><td class="data-field">{{ boiler_type }}</td>
+            </tr>
+            <tr>
+                <th>Status</th><td class="data-field">{{ status }}</td>
+                <th>Date</th><td class="data-field">{{ created_at }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-title">General Information</div>
+        <table>
+            <tr>
+                <th width="20%">Client</th><td width="30%" class="data-field">{{ client or 'N/A' }}</td>
+                <th width="20%">Consultant</th><td width="30%" class="data-field">{{ consultant or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <th>Site</th><td class="data-field">{{ site or 'N/A' }}</td>
+                <th>Branch Engineer</th><td class="data-field">{{ branch_engineer or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <th>Altitude from MSL</th><td class="data-field">{{ altitude or 'N/A' }}</td>
+                <th>Division Engineer</th><td class="data-field">{{ division_engineer or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <th>Temp Min / Max</th><td class="data-field">{{ temp_min_max or 'N/A' }}</td>
+                <th>Customer PO #</th><td class="data-field">{{ customer_po or 'N/A' }}</td>
+            </tr>
+        </table>
+        
+        <table>
+            <tr>
+                <th width="25%">Power Voltage</th><td width="25%" class="data-field">{{ power_voltage or 'N/A' }}</td>
+                <th width="25%">Control Voltage</th><td width="25%" class="data-field">{{ control_voltage or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <th>Frequency</th><td class="data-field">{{ frequency or 'N/A' }}</td>
+                <th>Delivery Date</th><td class="data-field">{{ delivery_date or 'N/A' }}</td>
+            </tr>
+        </table>
+    </div>
+
+    {% if supply_services %}
+    <div class="page-break"></div>
+    <div class="section">
+        <div class="section-title">Supply/Services Details</div>
+        
+        {% if wsm_type == 'Standard' %}
+        <div class="subsection">
+            <div class="subsection-title">1 Boiler</div>
+            <table>
+                <tr><th width="40%">Boiler Capacity (F&A100 Deg C)</th><td class="data-field">{{ supply_services.boiler_capacity or 'N/A' }}</td></tr>
+                <tr><th>Design Pressure</th><td class="data-field">{{ supply_services.design_pressure or 'N/A' }}</td></tr>
+                <tr><th>Quantity</th><td class="data-field">{{ supply_services.boiler_quantity or 'N/A' }}</td></tr>
+                <tr><th>Fuel</th><td class="data-field">{{ supply_services.boiler_fuel or 'N/A' }}</td></tr>
+                <tr><th>Boiler Type</th><td class="data-field">{{ supply_services.boiler_type or 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if wsm_type == 'Electrical' %}
+        <div class="subsection">
+            <div class="subsection-title">1 Boiler</div>
+            <table>
+                <tr><th width="40%">Boiler Capacity (F&A100 Deg C)</th><td class="data-field">{{ supply_services.boiler_capacity or 'N/A' }}</td></tr>
+                <tr><th>Design Pressure</th><td class="data-field">{{ supply_services.design_pressure or 'N/A' }}</td></tr>
+                <tr><th>Heater Element</th><td class="data-field">{{ supply_services.heater_element or 'N/A' }}</td></tr>
+                <tr><th>Boiler Type</th><td class="data-field">{{ supply_services.boiler_type or 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if wsm_type == 'WHRB' %}
+        <div class="subsection">
+            <div class="subsection-title">1 Waste Heat Recovery Steam Boiler</div>
+            <table>
+                <tr><th width="40%">Boiler Capacity with Economizer (F&A100)</th><td class="data-field">{{ supply_services.boiler_capacity or 'N/A' }}</td></tr>
+                <tr><th>Design Pressure</th><td class="data-field">{{ supply_services.design_pressure or 'N/A' }}</td></tr>
+                <tr><th>Allowable Flue gas side pressure drop</th><td class="data-field">{{ supply_services.flue_gas_pressure_drop or 'N/A' }}</td></tr>
+                <tr><th>Number of flue gas pass</th><td class="data-field">{{ supply_services.flue_gas_pass_count or 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if wsm_type == 'Non-Standard' %}
+        <div class="subsection">
+            <div class="subsection-title">Non-Standard Requirements</div>
+            <table>
+                <tr><th width="40%">Non-standard requirement</th><td class="data-field">{{ supply_services.non_standard_requirement or 'N/A' }}</td></tr>
+                <tr><th>Boiler Configuration</th><td class="data-field">{{ supply_services.boiler_configuration or 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if wsm_type == 'Custom' %}
+        <div class="subsection">
+            <div class="subsection-title">Custom Configuration</div>
+            <table>
+                <tr><th width="40%">Custom Boiler Type</th><td class="data-field">{{ supply_services.custom_boiler_type or 'N/A' }}</td></tr>
+                <tr><th>Custom Configuration</th><td class="data-field">{{ supply_services.custom_configuration or 'N/A' }}</td></tr>
+                <tr><th>Special Requirements</th><td class="data-field">{{ supply_services.special_requirements or 'N/A' }}</td></tr>
+            </table>
+        </div>
+        {% endif %}
+
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        Generated on: {{ current_timestamp }} | Created by: {{ created_by or 'System' }}
+    </div>
+</body>
+</html>

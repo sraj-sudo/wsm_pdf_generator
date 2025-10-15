@@ -1,7 +1,8 @@
 streamlit==1.28.0
-pandas==1.5.3
+mysql-connector-python==8.1.0
+pymysql==1.1.0
+python-dotenv==1.0.0
 jinja2==3.1.2
-numpy==1.24.3
-xhtml2pdf==0.2.13
+xhtml2pdf==0.2.12
 reportlab==4.0.4
-html5lib==1.1
+pdfdocument==3.6

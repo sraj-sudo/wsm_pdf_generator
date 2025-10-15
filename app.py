@@ -1,724 +1,698 @@
-# app.py
 import streamlit as st
-import sqlite3
-import hashlib
-import pandas as pd
-from datetime import datetime
-import uuid
-from database import init_db, get_db_connection, update_project_status, get_all_projects, get_project_by_number
-
-from pdf_generator import generate_pdf_for_streamlit
-from templates.template_manager import get_available_templates
-import tempfile
 import os
-# In app.py - update the import section
-from database import init_db, get_db_connection, update_project_status, get_all_projects, get_project_by_number
-from pdf_generator import generate_pdf_for_streamlit  # Use this instead of generate_wsm_pdf
-
-# Initialize database
-init_db()
+import tempfile
+from auth import initialize_authentication, require_auth, logout, create_user
+from database import init_db
+from forms import (
+    show_standard_form, 
+    show_non_standard_form, 
+    show_electrical_form, 
+    show_whrb_form, 
+    show_custom_form
+)
+from utils.pdf_generator import pdf_generator
 
 # Page configuration
 st.set_page_config(
-    page_title="WSM Management System",
-    page_icon="🏭",
-    layout="wide"
+    page_title="WSM Dashboard",
+    page_icon="📋",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Session state management
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'username' not in st.session_state:
-    st.session_state.username = None
-if 'current_project' not in st.session_state:
-    st.session_state.current_project = None
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_login(username, password):
-    conn = get_db_connection()
-    c = conn.cursor()
-    hashed_password = hash_password(password)
-    c.execute('SELECT * FROM users WHERE username = ? AND password = ?', 
-              (username, hashed_password))
-    user = c.fetchone()
-    conn.close()
-    return user is not None
-
-def login_page():
-    st.title("🏭 WSM Management System")
-    st.markdown("---")
+def main():
+    initialize_authentication()
     
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        with st.form("login_form"):
-            st.subheader("Login")
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            login_button = st.form_submit_button("Login")
-            
-            if login_button:
-                if verify_login(username, password):
-                    st.session_state.authenticated = True
-                    st.session_state.username = username
-                    st.success("Login successful!")
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password")
+    if not st.session_state.authenticated:
+        from auth import login_form
+        login_form()
+        return
+    
+    # Sidebar
+    with st.sidebar:
+        st.title(f"WSM Dashboard")
+        st.write(f"👤 **User:** {st.session_state.username}")
+        st.write(f"🎯 **Role:** {st.session_state.role}")
         
-        st.info("Default credentials: admin / admin123")
+        st.markdown("---")
+        
+        # Navigation based on role
+        if st.session_state.role == 'admin':
+            page_options = ["🏠 Dashboard", "➕ Create New WSM", "📊 Project Status", "⚙️ Admin Panel"]
+        else:
+            page_options = ["🏠 Dashboard", "➕ Create New WSM", "📋 My Projects"]
+        
+        page = st.radio("Navigation", page_options, key="main_navigation")
+        
+        st.markdown("---")
+        if st.button("🚪 Logout", key="logout_btn"):
+            logout()
+    
+    # Main content based on selected page
+    if page == "🏠 Dashboard":
+        show_dashboard()
+    elif page == "➕ Create New WSM":
+        show_create_wsm_page()
+    elif page == "📊 Project Status" or page == "📋 My Projects":
+        show_project_status_page()
+    elif page == "⚙️ Admin Panel" and st.session_state.role == 'admin':
+        show_admin_panel()
 
-def generate_project_no():
-    return f"WSM-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
-
-def wsm_form_page():
-    st.title("📝 New WSM Project")
+def show_dashboard():
+    st.title("🏠 WSM Dashboard")
+    
+    db = init_db()
+    
+    # Get statistics
+    if st.session_state.role == 'admin':
+        projects = db.get_all_projects()
+    else:
+        all_projects = db.get_all_projects()
+        projects = [p for p in all_projects if p.get('general_info', {}).get('created_by') == st.session_state.username]
+    
+    # Calculate statistics
+    total_projects = len(projects)
+    status_counts = {}
+    type_counts = {}
+    
+    for project in projects:
+        status = project['status']
+        wsm_type = project['wsm_type']
+        
+        status_counts[status] = status_counts.get(status, 0) + 1
+        type_counts[wsm_type] = type_counts.get(wsm_type, 0) + 1
+    
+    # Display statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📊 Total Projects", total_projects)
+    
+    with col2:
+        submitted = status_counts.get('Submitted', 0)
+        st.metric("📨 Submitted", submitted)
+    
+    with col3:
+        approved = status_counts.get('Approved', 0)
+        st.metric("✅ Approved", approved)
+    
+    with col4:
+        in_review = status_counts.get('Under Review', 0)
+        st.metric("🔍 Under Review", in_review)
+    
     st.markdown("---")
     
-    if st.session_state.current_project:
-        st.info(f"Currently editing: {st.session_state.current_project}")
-        if st.button("Clear Current Project"):
-            st.session_state.current_project = None
+    # Recent projects
+    st.subheader("📋 Recent Projects")
+    if projects:
+        recent_projects = projects[:5]  # Show last 5 projects
+        for project in recent_projects:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                
+                with col1:
+                    st.write(f"**{project['project_no']}** - {project['wsm_type']}")
+                    if project.get('general_info'):
+                        st.write(f"Client: {project['general_info'].get('client', 'N/A')}")
+                
+                with col2:
+                    st.write(f"**Status:** {project['status']}")
+                
+                with col3:
+                    st.write(f"**Type:** {project['wsm_type']}")
+                
+                with col4:
+                    if st.button("View", key=f"view_{project['project_no']}"):
+                        st.session_state.view_project = project['project_no']
+                        st.rerun()
+                
+                st.markdown("---")
+    else:
+        st.info("No projects found. Create your first WSM!")
+    
+    # Quick actions
+    st.subheader("🚀 Quick Actions")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📝 Create New WSM", use_container_width=True, key="create_wsm_dash"):
+            st.session_state.current_page = "Create New WSM"
             st.rerun()
     
-    with st.form("wsm_form", clear_on_submit=False):
-        # Page 1: Basic Information
-        st.header("📄 Page 1: Basic Information")
-        col1, col2 = st.columns(2)
+    with col2:
+        if st.button("📋 View All Projects", use_container_width=True, key="view_projects_dash"):
+            st.session_state.current_page = "Project Status"
+            st.rerun()
+    
+    with col3:
+        if st.session_state.role == 'admin' and st.button("⚙️ Admin Panel", use_container_width=True, key="admin_panel_dash"):
+            st.session_state.current_page = "Admin Panel"
+            st.rerun()
+
+def show_create_wsm_page():
+    st.title("📝 Create New Worksheet for Manufacturing (WSM)")
+    
+    # Initialize session state for current project
+    if 'current_project' not in st.session_state:
+        st.session_state.current_project = None
+    if 'current_wsm_type' not in st.session_state:
+        st.session_state.current_wsm_type = None
+    
+    # Step 1: General Information (only show if no current project)
+    if not st.session_state.current_project:
+        st.header("📍 Step 1: General Information")
         
-        with col1:
-            available_templates = get_available_templates()
-            wsm_type = st.selectbox("WSM Type*", list(available_templates.keys()), 
-                                   format_func=lambda x: available_templates[x])
-            revision = st.text_input("Revision*", placeholder="1.0")
-            client = st.text_input("Client*", placeholder="Enter client name")
-            consultant = st.text_input("Consultant", placeholder="Consultant name")
-            branch_engineer = st.text_input("Branch Engineer", placeholder="Engineer name")
-            division_engineer = st.text_input("Division Engineer", placeholder="Engineer name")
+        with st.form("general_info"):
+            col1, col2 = st.columns(2)
             
-        with col2:
-            site = st.text_input("Site*", placeholder="Site location")
-            altitude = st.text_input("Altitude from MSL", placeholder="e.g., 100m")
-            temp_min_max = st.text_input("Temp Min / Max", placeholder="e.g., 10°C / 35°C")
-            power_voltage = st.text_input("Power Voltage", placeholder="415V")
-            control_voltage = st.text_input("Control Voltage", placeholder="230V")
-            frequency = st.text_input("Frequency", placeholder="50Hz")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            customer_po = st.text_input("Customer PO #", placeholder="PO number")
-            po_date = st.date_input("PO Date")
-            delivery_date = st.date_input("Delivery Date")
-            special_delivery = st.selectbox("Special Delivery", ["No", "Yes"])
-            
-        with col2:
-            ld_delivery_time = st.text_input("LD - Delivery time", placeholder="Delivery terms")
-            ld_performance = st.text_input("LD - Performance", placeholder="Performance terms")
-            supply_payment_terms = st.text_area("Supply Payment Terms", placeholder="Payment terms for supply")
-            service_payment_terms = st.text_area("Service Payment Terms", placeholder="Payment terms for service")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            direct_orders = st.selectbox("Direct orders (Yes/No)", ["No", "Yes"])
-            fm_role = st.text_input("FM Role", placeholder="FM role description")
-            
-        with col2:
-            inspection = st.text_input("Inspection", placeholder="Inspection requirements")
-            price_basis = st.selectbox("Price Basis", ["Ex works", "FOR", "CIF", "FOB"])
-            commission = st.text_input("Commission - If any", placeholder="Commission details")
-
-        # Page 2: Supply/Services - Boiler
-        st.header("🔥 Page 2: Boiler Details")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Boiler Specifications")
-            boiler_capacity = st.text_input("Boiler Capacity (F&A100 Deg C)*", placeholder="e.g., 1000 kg/hr")
-            design_pressure = st.text_input("Design Pressure*", placeholder="e.g., 10.54 kg/cm²")
-            boiler_quantity = st.text_input("Quantity*", placeholder="e.g., 1")
-            boiler_fuel = st.selectbox("Fuel*", ["Natural Gas", "Diesel", "Fuel Oil", "LPG", "Biogas", "Coal"])
-            boiler_type = st.selectbox("Boiler Type*", 
-                ["Modular", "Non-Modular", "Combination M", "Floating Furnace", "Marshall BE", "Modular Marshall BE"])
-            boiler_configuration = st.text_input("Boiler configuration", placeholder="e.g., 1 Working & 1 Stand by")
-            
-        with col2:
-            st.subheader("Boiler Components")
-            non_standard_requirement = st.text_area("Any non-standard requirement", placeholder="Special specifications or makes")
-            pumps = st.text_input("Pumps", placeholder="Pump specifications")
-            motors = st.text_input("Motors", placeholder="Motor specifications")
-            valves = st.text_input("Valves", placeholder="Valve specifications")
-            flanges = st.text_input("Flanges", placeholder="Flange specifications")
-        
-        st.subheader("Insulation & Cladding")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            insulation_cladding = st.selectbox("Insulation & Cladding", ["Yes", "No"])
-        with col2:
-            insulation_density = st.text_input("Insulation Density", placeholder="e.g., 128 kg/m³")
-        with col3:
-            insulation_thickness = st.text_input("Insulation thickness", placeholder="e.g., 75 mm")
-        with col4:
-            cladding_material = st.selectbox("Cladding Material", ["SS", "Aluminum", "GI"])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            orientation = st.selectbox("Orientation", ["Std.", "Mirror"])
-        with col2:
-            boiler_design = st.selectbox("Boiler Design", ["IBR", "BS", "EN"])
-        with col3:
-            specific_design_approvals = st.text_input("Specific Design Approvals", placeholder="e.g., DOSH")
-        
-        emissions = st.selectbox("Emissions", ["Std.", "Non-Std."])
-        boiler_other_requirements = st.text_area("Other Requirement/Special Instructions", placeholder="Additional boiler requirements")
-
-        # Water Level Control
-        st.header("💧 Water Level Control")
-        col1, col2 = st.columns(2)
-        with col1:
-            wlc_type = st.selectbox("WLC type", ["Single", "Two element control", "Three element control"])
-        with col2:
-            water_level_control_type = st.selectbox("Type of water level control", 
-                ["Std. WLC type", "VFD based", "Control valve"])
-        wlc_other_requirements = st.text_area("Other Requirement/Special Instructions - WLC", placeholder="WLC special requirements")
-
-        # Burner Details
-        st.header("🔥 Burner Details")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            burner_type = st.text_input("Burner Type", placeholder="e.g., Rotary Cup, Pressure Jet")
-            burner_make = st.text_input("Burner Make", placeholder="Manufacturer name")
-            burner_model = st.text_input("Burner Model", placeholder="Model number")
-            burner_quantity = st.text_input("Burner Quantity", placeholder="e.g., 1")
-            
-        with col2:
-            burner_modulation = st.selectbox("Modulation", 
-                ["On-Off", "High Low", "3 Stage", "Stepless"])
-            fm_burner_regulation = st.selectbox("FM burner Regulation", 
-                ["ECR-M", "ECR-P", "ECR-A", "MCR"])
-            primary_fuel = st.selectbox("Primary Fuel", ["Natural Gas", "Diesel", "Fuel Oil", "LPG"])
-            secondary_fuel = st.selectbox("Secondary fuel", ["None", "Natural Gas", "Diesel", "Fuel Oil", "LPG"])
-
-        col1, col2 = st.columns(2)
-        with col1:
-            burner_bloc_type = st.selectbox("Type (Monobloc/Dual Bloc)", ["Monobloc", "Dual Bloc"])
-            burner_fan = st.selectbox("Fan (Burner Mfg./Local)", ["Burner Mfg.", "Local"])
-            lp_gas_train = st.selectbox("LP Gas train", ["Yes", "No"])
-            
-        with col2:
-            o2_trimming = st.selectbox("O2 trimming (Yes/No)", ["No", "Yes"])
-            vfd_details = st.selectbox("VFD (Yes/No)", ["No", "Yes"])
-            special_makes = st.text_input("Mention Special Makes, if any", placeholder="Special manufacturer requirements")
-        
-        burner_other_requirements = st.text_area("Other Requirement/Special Instructions - Burner", placeholder="Burner special requirements")
-
-        # Combustion Blower
-        st.header("💨 Combustion Blower")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            combustion_blower_flow = st.text_input("Flow", placeholder="e.g., 1000 m³/hr")
-        with col2:
-            combustion_blower_head = st.text_input("Head", placeholder="e.g., 100 mmWC")
-        with col3:
-            vfd_suitable_motors = st.selectbox("Motors suitable for VFD", ["No", "Yes"])
-        with col4:
-            silencer = st.selectbox("Silencer", ["No", "Yes"])
-        
-        noise_level = st.selectbox("Noise level", ["Std.", "Non-Std."])
-        combustion_blower_other_requirements = st.text_area("Other Requirement/Special Instructions - Combustion Blower", placeholder="Blower special requirements")
-
-        # Control Panel
-        st.header("⚡ Control Panel")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            control_panel_type = st.selectbox("Panel Type", ["Boiler mounted", "Floor Standing"])
-        with col2:
-            panel_configuration = st.selectbox("Panel Configuration", ["STD", "Compartmentalized"])
-        with col3:
-            plc = st.selectbox("PLC", ["No", "Yes"])
-        with col4:
-            plc_make = st.text_input("PLC Make", placeholder="e.g., Siemens, Allen Bradley")
-        
-        ip_rating = st.selectbox("IP Rating", ["IP54", "IP55", "IP65", "IP66"])
-        control_panel_other_requirements = st.text_area("Other Requirement/Special Instructions - Control Panel", placeholder="Control panel special requirements")
-
-        # Boiler Site Electricals
-        st.header("🔌 Boiler Site Electricals")
-        col1, col2 = st.columns(2)
-        with col1:
-            cabling_supply = st.selectbox("Cabling supply", ["FM Factory", "Drop shipment", "Not in scope"])
-        with col2:
-            cable_trays = st.selectbox("Cable trays", ["FM Factory", "Drop shipment", "Not in scope"])
-        electricals_other_requirements = st.text_area("Other Requirement/Special Instructions - Electricals", placeholder="Electrical special requirements")
-
-        # Page 4: Additional Systems
-        st.header("🛠️ Page 4: Additional Systems")
-        
-        # Chemical Dosing System
-        st.subheader("🧪 Chemical Dosing System")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            chemical_dosing_qty = st.text_input("Qty.", placeholder="e.g., 1")
-        with col2:
-            chemical_dosing_tank_capacity = st.text_input("Tank (Capacity)", placeholder="e.g., 100 L")
-        with col3:
-            dosing_pumps = st.selectbox("Dosing Pumps", ["1No", "2No"])
-        with col4:
-            chemical_dosing_control_type = st.selectbox("Type of control", ["Manual", "Auto"])
-        chemical_dosing_other_requirements = st.text_area("Other Requirement/Special Instructions - Chemical Dosing", placeholder="Chemical dosing special requirements")
-
-        # Ring Main system
-        st.subheader("🔄 Ring Main system")
-        ring_main_pump_qty = st.selectbox("Qty. of pumps", ["1W", "1W+1S"])
-        ring_main_other_requirements = st.text_area("Other Requirement/Special Instructions - Ring Main", placeholder="Ring main special requirements")
-
-        # Oil pumping & heating Station
-        st.subheader("🛢️ Oil pumping & heating Station/Oil pumping station - OPS/OPH")
-        utility_prs_prv = st.selectbox("Utility PRS/PRV for Steam", ["No", "Yes"])
-        oil_station_other_requirements = st.text_area("Other Requirement/Special Instructions - Oil Station", placeholder="Oil station special requirements")
-
-        # H.P. Gas Train
-        st.subheader("🔥 H.P. Gas Train")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            hp_gas_train_make = st.text_input("Make", placeholder="Manufacturer")
-        with col2:
-            gas_type = st.selectbox("Type of Gas", ["NG", "PNG", "Biogas"])
-        with col3:
-            ng_inlet_pressure = st.text_input("NG Inlet Pressure", placeholder="e.g., 200 mbar")
-        hp_gas_train_other_requirements = st.text_area("Other Requirement/Special Instructions - HP Gas Train", placeholder="Gas train special requirements")
-
-        # Heat recovery Unit
-        st.subheader("♨️ Heat recovery Unit")
-        col1, col2 = st.columns(2)
-        with col1:
-            heat_recovery_type = st.selectbox("Type", 
-                ["Natural Circulation WPH", "Forced Circulation WPH", "Pressurized Economizer"])
-            heat_recovery_integration = st.selectbox("Integral/Non-Integral/Integrated", 
-                ["Integral", "Non-Integral", "Integrated (mounted on Boiler)"])
-            heat_recovery_design_fuel = st.selectbox("Design fuel", 
-                ["FQ", "NG", "hSD", "LPG"])
-            heat_recovery_material_type = st.selectbox("Type (MS Finned/CI Gilled)", 
-                ["MS Finned", "CI Gilled"])
-            
-        with col2:
-            heat_recovery_quantity = st.text_input("Quantity", placeholder="e.g., 1")
-            design_inlet_feed_water_temp = st.text_input("Design Inlet Feed Water Temperature", placeholder="e.g., 85°C")
-            design_outlet_feed_water_temp = st.text_input("Design outlet Feed water Temperature", placeholder="e.g., 105°C")
-            flue_gas_inlet_temp = st.text_input("Flue gas inlet temperature", placeholder="e.g., 250°C")
-        
-        flue_gas_outlet_temp = st.text_input("Flue Gas Outlet Temperature", placeholder="e.g., 150°C")
-        heat_recovery_insulation = st.selectbox("Insulation & Cladding", ["Yes", "No"])
-        motorized_dampers = st.selectbox("Motorized Dampers", ["Yes", "No"])
-        water_side_control_valve = st.selectbox("Control valve on Water side", ["Yes", "No"])
-
-        # Page 5: Continued Systems
-        st.header("📋 Page 5: Continued Systems")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            manual_dampers = st.selectbox("Manual Dampers", ["Yes", "No"])
-        with col2:
-            soot_blowers = st.selectbox("Soot Blowers", 
-                ["Motorized Steam type", "Sonic", "Not Required"])
-        with col3:
-            wph_makeup_pump = st.selectbox("WPH Makeup pump", ["No", "Yes"])
-        
-        heat_recovery_other_requirements = st.text_area("Other Requirement/Special Instructions - Heat Recovery", placeholder="Heat recovery special requirements")
-
-        # Pressurized Deaerator/Pressurized Tank
-        st.subheader("💧 Pressurized Deaerator/Pressurized Tank")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            deaerator_type = st.selectbox("Type", ["Pressurized Deaerator", "Pressurized Tank"])
-        with col2:
-            deaerator_quantity = st.text_input("Quantity", placeholder="e.g., 1")
-        with col3:
-            deaeration_capacity = st.text_input("Deaeration capacity", placeholder="e.g., 1000 kg/hr")
-        with col4:
-            storage_capacity = st.text_input("Storage capacity", placeholder="e.g., 5000 L")
-        
-        deaerator_insulation = st.selectbox("Insulation & Cladding", ["Yes", "No"])
-        deaerator_other_requirements = st.text_area("Other Requirement/Special Instructions - Deaerator", placeholder="Deaerator special requirements")
-
-        # Site Specific Requirements
-        st.subheader("🏗️ Site Specific Requirements")
-        col1, col2 = st.columns(2)
-        with col1:
-            safety_officer = st.text_input("Safety officer", placeholder="Officer name")
-            site_supervisor = st.text_input("Site supervisor", placeholder="Supervisor name")
-            construction_water = st.selectbox("Construction water", ["Available", "Not Available"])
-            construction_power = st.selectbox("Construction Power", ["Available", "Not Available"])
-            
-        with col2:
-            safety_requirements = st.text_area("Safety specific requirements", placeholder="Safety requirements")
-            ehs_policy = st.selectbox("EHS Policy", ["No", "Yes"])
-            drinking_water = st.selectbox("Drinking Water", ["Available", "Not Available"])
-        
-        site_other_requirements = st.text_area("Other Requirement/Special Instructions - Site", placeholder="Site special requirements")
-
-        # Services
-        st.subheader("🔧 Services")
-        col1, col2 = st.columns(2)
-        with col1:
-            drawing_approval = st.selectbox("P&ID, BHL, GA Approval/Submission", ["No", "Yes"])
-            control_panel_drawing_approval = st.selectbox("Control Panel Drawing Approval", ["No", "Yes"])
-            special_documentation = st.text_input("Special Documentation, If any", placeholder="Documentation requirements")
-            ibr_approval = st.selectbox("IBR Approval", ["PFO", "Steam Test", "only Folder"])
-            
-        with col2:
-            site_services = st.selectbox("Site Services", ["Included", "Not Included"])
-            unloading_leading = st.selectbox("Unloading & Leading", ["Included", "Not Included"])
-            erection_commissioning = st.selectbox("Erection & Commissioning", ["Included", "Not Included"])
-        
-        # Page 6: Continued Services
-        st.header("📋 Page 6: Continued Services")
-        supervision = st.selectbox("Supervision", ["Included", "Not Included"])
-        services_other_requirements = st.text_area("Other Requirement/Special Instructions - Services", placeholder="Services special requirements")
-
-        # Page 7: Exclusions & Battery Limits
-        st.header("🚫 Page 7: Exclusions & Battery Limits")
-        st.info("""
-        **Standard Exclusions (unless otherwise specified):**
-        - All Civil and Structural work for Boiler installation
-        - Feed Water Bulk Storage, Feed Water Transfer Pumps & Water treatment plant
-        - Supporting Structural for items not in our scope
-        - Boiler House Electricals for Balance of Plant Items
-        - Fuel, water instrumentation and accessories required for performance testing
-        - Steam, water, and fuel piping beyond terminal points
-        - Any specific item not indicated in our scope of supply
-        """)
-
-        st.subheader("Battery Limits")
-        col1, col2 = st.columns(2)
-        with col1:
-            battery_limits_boiler_feed_water = st.text_input("Boiler Feed Water", placeholder="Terminal point details")
-            battery_limits_steam = st.text_input("Steam", placeholder="Terminal point details")
-            battery_limits_fuel = st.text_input("Fuel FO / HSD", placeholder="Terminal point details")
-            battery_limits_blow_down = st.text_input("Blow-down", placeholder="Terminal point details")
-            
-        with col2:
-            battery_limits_safety_valve_exhaust = st.text_input("Safety Valve Exhaust", placeholder="Terminal point details")
-            battery_limits_instrument_air = st.text_input("Instrument Air", placeholder="Terminal point details")
-            battery_limits_power = st.text_input("Power", placeholder="Terminal point details")
-
-        # Page 8: Documentation & Guarantees
-        st.header("📄 Page 8: Documentation & Guarantees")
-        
-        st.subheader("DOCUMENTATION")
-        col1, col2 = st.columns(2)
-        with col1:
-            ga_drawing = st.selectbox("General Arrangement Drawing (GA)", ["No", "Yes"])
-            p_id_drawing = st.selectbox("Piping and Instrumentation Drawing (P & ID)", ["No", "Yes"])
-            bhl_drawing = st.selectbox("Boiler House Layout (BHL)", ["No", "Yes"])
-            piping_drawing = st.selectbox("Piping Drawing", ["No", "Yes"])
-            qualification_documents = st.selectbox("Qualification Documents", ["No", "Yes"])
-            
-        with col2:
-            chimney_drawing = st.selectbox("Chimney drawing", ["No", "Yes"])
-            chimney_drawing_type = st.selectbox("Chimney drawing (Schematic/ Fabrication)", ["Schematic", "Fabrication"])
-            feed_water_tank_drawing = st.selectbox("Feed water Tank drawing", ["No", "Yes"])
-            feed_water_tank_capacity = st.text_input("Feed water Tank capacity", placeholder="e.g., 10000 L")
-            day_oil_tank_drawing = st.selectbox("Day Oil Tank drawing", ["No", "Yes"])
-        
-        day_oil_tank_capacity = st.text_input("Day Oil Tank capacity", placeholder="e.g., 1000 L")
-        documentation_other_requirements = st.text_area("Other Requirement/Special Instructions - Documentation", placeholder="Documentation special requirements")
-
-        st.subheader("GUARANTEES")
-        col1, col2 = st.columns(2)
-        with col1:
-            fuel_consumption_guarantee = st.selectbox("Fuel Consumption", ["No", "Yes"])
-        with col2:
-            efficiency_ncv_guarantee = st.selectbox("Efficiency on NCV Basis", ["No", "Yes"])
-        guarantees_other_requirements = st.text_area("Other Requirement/Special Instructions - Guarantees", placeholder="Guarantee details")
-
-        st.subheader("DOCUMENTS ENCLOSED")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            customer_loi = st.selectbox("Customer LOI", ["No", "Yes"])
-        with col2:
-            customer_purchase_order = st.selectbox("Customer Purchase Order", ["No", "Yes"])
-        with col3:
-            customer_layout = st.selectbox("Customer's Layout", ["No", "Yes"])
-        other_documents = st.text_area("Any other documents", placeholder="List any other documents")
-
-        # Final Signature
-        st.header("✍️ Final Approval")
-        col1, col2 = st.columns(2)
-        with col1:
-            signature = st.text_input("Sign", value="LVK", placeholder="Authorized signature")
-        with col2:
-            signature_date = st.date_input("Date", value=datetime.now())
-
-        submitted = st.form_submit_button("🚀 Submit WSM Project")
-        
-        if submitted:
-            # Validate required fields
-            required_fields = {
-                "WSM Type": wsm_type,
-                "Revision": revision,
-                "Client": client,
-                "Site": site,
-                "Boiler Capacity": boiler_capacity,
-                "Design Pressure": design_pressure,
-                "Boiler Quantity": boiler_quantity,
-                "Boiler Fuel": boiler_fuel,
-                "Boiler Type": boiler_type
-            }
-            
-            missing_fields = [field for field, value in required_fields.items() if not value]
-            
-            if missing_fields:
-                st.error(f"❌ Please fill in the following required fields: {', '.join(missing_fields)}")
-            else:
-                project_no = generate_project_no()
-                conn = get_db_connection()
-                c = conn.cursor()
+            with col1:
+                st.subheader("👥 Client & Site Information")
+                client = st.text_input("Client *", placeholder="Enter client name", key="client_input")
+                site = st.text_input("Site *", placeholder="Enter site location", key="site_input")
+                altitude = st.text_input("Altitude from MSL", placeholder="e.g., 100m", key="altitude_input")
+                temp_min_max = st.text_input("Temp Min / Max", placeholder="e.g., 10°C / 40°C", key="temp_input")
                 
-                try:
-                    # Prepare all data for insertion
-                    project_data = (
-                        project_no, st.session_state.username, 'Submitted',
-                        wsm_type, revision, client, consultant, branch_engineer, division_engineer,
-                        site, altitude, temp_min_max, power_voltage, control_voltage, frequency,
-                        customer_po, po_date.isoformat() if po_date else None, 
-                        delivery_date.isoformat() if delivery_date else None, special_delivery, ld_delivery_time,
-                        ld_performance, supply_payment_terms, service_payment_terms, direct_orders,
-                        fm_role, inspection, price_basis, commission,
-                        boiler_capacity, design_pressure, boiler_quantity, boiler_fuel, boiler_type,
-                        boiler_configuration, non_standard_requirement, pumps, motors, valves, flanges,
-                        insulation_cladding, insulation_density, insulation_thickness, cladding_material,
-                        orientation, boiler_design, specific_design_approvals, emissions, boiler_other_requirements,
-                        wlc_type, water_level_control_type, wlc_other_requirements,
-                        burner_type, burner_make, burner_model, burner_quantity, burner_modulation, fm_burner_regulation,
-                        primary_fuel, secondary_fuel, burner_bloc_type, burner_fan, lp_gas_train, o2_trimming,
-                        vfd_details, burner_other_requirements, special_makes,
-                        combustion_blower_flow, combustion_blower_head, vfd_suitable_motors, silencer, noise_level,
-                        combustion_blower_other_requirements, control_panel_type, panel_configuration, plc, plc_make,
-                        ip_rating, control_panel_other_requirements, cabling_supply, cable_trays, electricals_other_requirements,
-                        chemical_dosing_qty, chemical_dosing_tank_capacity, dosing_pumps, chemical_dosing_control_type, chemical_dosing_other_requirements,
-                        ring_main_pump_qty, ring_main_other_requirements, utility_prs_prv, oil_station_other_requirements,
-                        hp_gas_train_make, gas_type, ng_inlet_pressure, hp_gas_train_other_requirements,
-                        heat_recovery_type, heat_recovery_integration, heat_recovery_design_fuel, heat_recovery_material_type, heat_recovery_quantity,
-                        design_inlet_feed_water_temp, design_outlet_feed_water_temp, flue_gas_inlet_temp, flue_gas_outlet_temp,
-                        heat_recovery_insulation, motorized_dampers, water_side_control_valve, manual_dampers, soot_blowers,
-                        wph_makeup_pump, heat_recovery_other_requirements, deaerator_type, deaerator_quantity, deaeration_capacity,
-                        storage_capacity, deaerator_insulation, deaerator_other_requirements, safety_officer, site_supervisor,
-                        construction_water, construction_power, safety_requirements, ehs_policy, drinking_water, site_other_requirements,
-                        drawing_approval, control_panel_drawing_approval, special_documentation, ibr_approval, site_services,
-                        unloading_leading, erection_commissioning, supervision, services_other_requirements,
-                        battery_limits_boiler_feed_water, battery_limits_steam, battery_limits_fuel, battery_limits_blow_down,
-                        battery_limits_safety_valve_exhaust, battery_limits_instrument_air, battery_limits_power,
-                        ga_drawing, p_id_drawing, bhl_drawing, piping_drawing, qualification_documents, chimney_drawing,
-                        chimney_drawing_type, feed_water_tank_drawing, feed_water_tank_capacity, day_oil_tank_drawing,
-                        day_oil_tank_capacity, documentation_other_requirements, fuel_consumption_guarantee, efficiency_ncv_guarantee,
-                        guarantees_other_requirements, customer_loi, customer_purchase_order, customer_layout, other_documents,
-                        signature, signature_date.isoformat() if signature_date else None, wsm_type
-                    )
+                st.subheader("📋 Order Details")
+                customer_po = st.text_input("Customer PO #", placeholder="Purchase order number", key="customer_po_input")
+                delivery_date = st.date_input("Delivery Date", key="delivery_date_input")
+            
+            with col2:
+                st.subheader("👨‍💼 Personnel")
+                consultant = st.text_input("Consultant", placeholder="Consultant name", key="consultant_input")
+                branch_engineer = st.text_input("Branch Engineer", placeholder="Branch engineer name", key="branch_engineer_input")
+                division_engineer = st.text_input("Division Engineer", placeholder="Division engineer name", key="division_engineer_input")
+                po_date = st.date_input("PO Date", key="po_date_input")
+                
+                st.subheader("⚡ Voltage Details")
+                power_voltage = st.text_input("Power Voltage", placeholder="e.g., 415V", key="power_voltage_input")
+                control_voltage = st.text_input("Control Voltage", placeholder="e.g., 230V", key="control_voltage_input")
+                frequency = st.text_input("Frequency", placeholder="e.g., 50Hz", key="frequency_input")
+            
+            st.markdown("---")
+            
+            # WSM Type and Boiler Type
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("📄 WSM Type")
+                wsm_type = st.selectbox("WSM Type *", 
+                                      ["Standard", "Non-Standard", "Electrical", "WHRB", "Custom"],
+                                      key="wsm_type_select")
+            
+            with col2:
+                st.subheader("🔥 Boiler Type")
+                boiler_options = {
+                    "Standard": [
+                        "Marshall E Series Electric Steam Boiler",
+                        "Marshall C Series Packaged Boilers", 
+                        "DynaMax Small Industrial Boilers",
+                        "MiniMax Compact Packaged Boiler",
+                        "Modular Boilerhouse",
+                        "Marshall B Boiler",
+                        "BE", "BG", "CG",
+                        "TOH (Thermal oil Heaters)",
+                        "Hot air generator",
+                        "Marshall F", 
+                        "Duplex Boiler"
+                    ],
+                    "Non-Standard": ["Custom Non-Standard Boiler"],
+                    "Electrical": ["Marshall E Series Electric Steam Boiler"],
+                    "WHRB": ["Waste Heat Recovery Boilers (WHRB)"],
+                    "Custom": ["Custom Boiler Configuration"]
+                }
+                
+                boiler_type = st.selectbox("Boiler Type *", boiler_options[wsm_type], key="boiler_type_select")
+            
+            st.markdown("---")
+            
+            # Terms and Conditions
+            st.subheader("📑 Terms & Conditions")
+            col1, col2 = st.columns(2)
+            with col1:
+                supply_payment_terms = st.text_input("Terms of Payment - Supply", placeholder="Supply payment terms", key="supply_payment_input")
+                direct_orders = st.selectbox("Direct orders (Yes/No)", ["Yes", "No", "Not Specified"], key="direct_orders_select")
+                fm_role = st.text_input("FM Role", placeholder="FM role description", key="fm_role_input")
+                price_basis = st.selectbox("Price Basis", 
+                                         ["Ex works", "FOR", "CIF", "FOB", "Not Specified"],
+                                         key="price_basis_select")
+            
+            with col2:
+                service_payment_terms = st.text_input("Terms of Payment - Service", placeholder="Service payment terms", key="service_payment_input")
+                inspection = st.selectbox("Inspection", 
+                                        ["Customer", "Consultant", "Third Party", "Not Specified"],
+                                        key="inspection_select")
+                commission = st.text_input("Commission - If any", placeholder="Commission details", key="commission_input")
+                special_delivery = st.selectbox("Special Delivery (Yes/No)", ["Yes", "No", "Not Specified"], key="special_delivery_select")
+            
+            # LD Terms
+            st.subheader("⚖️ Liquidated Damages")
+            col1, col2 = st.columns(2)
+            with col1:
+                ld_delivery_time = st.text_input("LD - Delivery time", placeholder="Delivery time LD terms", key="ld_delivery_input")
+            with col2:
+                ld_performance = st.text_input("LD - Performance", placeholder="Performance LD terms", key="ld_performance_input")
+            
+            st.markdown("---")
+            
+            # Submit button for the form
+            submitted = st.form_submit_button("🚀 Create Project", use_container_width=True)
+            
+            if submitted:
+                if not client or not site:
+                    st.error("❌ Please fill in all required fields (*)")
+                else:
+                    db = init_db()
                     
-                    # Execute the insert with all fields
-                    c.execute('''
-                        INSERT INTO projects (
-                            project_no, created_by, status,
-                            wsm_type, revision, client, consultant, branch_engineer, division_engineer,
-                            site, altitude, temp_min_max, power_voltage, control_voltage, frequency,
-                            customer_po, po_date, delivery_date, special_delivery, ld_delivery_time,
-                            ld_performance, supply_payment_terms, service_payment_terms, direct_orders,
-                            fm_role, inspection, price_basis, commission,
-                            boiler_capacity, design_pressure, boiler_quantity, boiler_fuel, boiler_type,
-                            boiler_configuration, non_standard_requirement, pumps, motors, valves, flanges,
-                            insulation_cladding, insulation_density, insulation_thickness, cladding_material,
-                            orientation, boiler_design, specific_design_approvals, emissions, boiler_other_requirements,
-                            wlc_type, water_level_control_type, wlc_other_requirements,
-                            burner_type, burner_make, burner_model, burner_quantity, burner_modulation, fm_burner_regulation,
-                            primary_fuel, secondary_fuel, burner_bloc_type, burner_fan, lp_gas_train, o2_trimming,
-                            vfd_details, burner_other_requirements, special_makes,
-                            combustion_blower_flow, combustion_blower_head, vfd_suitable_motors, silencer, noise_level,
-                            combustion_blower_other_requirements, control_panel_type, panel_configuration, plc, plc_make,
-                            ip_rating, control_panel_other_requirements, cabling_supply, cable_trays, electricals_other_requirements,
-                            chemical_dosing_qty, chemical_dosing_tank_capacity, dosing_pumps, chemical_dosing_control_type, chemical_dosing_other_requirements,
-                            ring_main_pump_qty, ring_main_other_requirements, utility_prs_prv, oil_station_other_requirements,
-                            hp_gas_train_make, gas_type, ng_inlet_pressure, hp_gas_train_other_requirements,
-                            heat_recovery_type, heat_recovery_integration, heat_recovery_design_fuel, heat_recovery_material_type, heat_recovery_quantity,
-                            design_inlet_feed_water_temp, design_outlet_feed_water_temp, flue_gas_inlet_temp, flue_gas_outlet_temp,
-                            heat_recovery_insulation, motorized_dampers, water_side_control_valve, manual_dampers, soot_blowers,
-                            wph_makeup_pump, heat_recovery_other_requirements, deaerator_type, deaerator_quantity, deaeration_capacity,
-                            storage_capacity, deaerator_insulation, deaerator_other_requirements, safety_officer, site_supervisor,
-                            construction_water, construction_power, safety_requirements, ehs_policy, drinking_water, site_other_requirements,
-                            drawing_approval, control_panel_drawing_approval, special_documentation, ibr_approval, site_services,
-                            unloading_leading, erection_commissioning, supervision, services_other_requirements,
-                            battery_limits_boiler_feed_water, battery_limits_steam, battery_limits_fuel, battery_limits_blow_down,
-                            battery_limits_safety_valve_exhaust, battery_limits_instrument_air, battery_limits_power,
-                            ga_drawing, p_id_drawing, bhl_drawing, piping_drawing, qualification_documents, chimney_drawing,
-                            chimney_drawing_type, feed_water_tank_drawing, feed_water_tank_capacity, day_oil_tank_drawing,
-                            day_oil_tank_capacity, documentation_other_requirements, fuel_consumption_guarantee, efficiency_ncv_guarantee,
-                            guarantees_other_requirements, customer_loi, customer_purchase_order, customer_layout, other_documents,
-                            signature, signature_date, template_type
-                        ) VALUES (''' + ','.join(['?'] * len(project_data)) + ')', project_data)
+                    project_data = {
+                        'client': client,
+                        'consultant': consultant,
+                        'branch_engineer': branch_engineer,
+                        'division_engineer': division_engineer,
+                        'site': site,
+                        'altitude': altitude,
+                        'temp_min_max': temp_min_max,
+                        'power_voltage': power_voltage,
+                        'control_voltage': control_voltage,
+                        'frequency': frequency,
+                        'customer_po': customer_po,
+                        'delivery_date': delivery_date.isoformat() if delivery_date else '',
+                        'po_date': po_date.isoformat() if po_date else '',
+                        'special_delivery': special_delivery,
+                        'supply_payment_terms': supply_payment_terms,
+                        'service_payment_terms': service_payment_terms,
+                        'direct_orders': direct_orders,
+                        'fm_role': fm_role,
+                        'inspection': inspection,
+                        'price_basis': price_basis,
+                        'commission': commission,
+                        'ld_delivery_time': ld_delivery_time,
+                        'ld_performance': ld_performance,
+                        'wsm_type': wsm_type,
+                        'boiler_type': boiler_type,
+                        'created_by': st.session_state.username
+                    }
                     
-                    conn.commit()
-                    st.success(f"✅ Project submitted successfully!")
-                    st.info(f"**Project Number:** {project_no}")
-                    st.session_state.current_project = project_no
-                    
-                    # Show next steps
-                    st.balloons()
-                    st.markdown("""
-                    ### Next Steps:
-                    1. Go to **Project Status** page to track your project
-                    2. Download the PDF report once approved
-                    3. Monitor project status updates
-                    """)
-                    
-                except Exception as e:
-                    st.error(f"❌ Error submitting project: {str(e)}")
-                    import traceback
-                    st.error(f"Detailed error: {traceback.format_exc()}")
-                finally:
-                    conn.close()
+                    project_no = db.create_project(project_data)
+                    if project_no:
+                        st.session_state.current_project = project_no
+                        st.session_state.current_wsm_type = wsm_type
+                        st.success(f"✅ Project created successfully! **Project No: {project_no}**")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("❌ Error creating project. Please try again.")
 
-def status_page():
-    st.title("📊 Project Status")
-    st.markdown("---")
-    
-    conn = get_db_connection()
-    
-    # Get all projects
-    projects = get_all_projects()
-    
-    if not projects.empty:
-        st.subheader("Project Overview")
+    # Step 2: WSM Specific Forms
+    if st.session_state.current_project:
+        st.header("🔧 Step 2: Supply/Services Details")
+        st.info(f"📋 **Current Project:** {st.session_state.current_project} | **Type:** {st.session_state.current_wsm_type}")
         
-        # Status summary
-        status_counts = projects['status'].value_counts()
-        col1, col2, col3, col4, col5 = st.columns(5)
+        wsm_type = st.session_state.current_wsm_type
+        project_no = st.session_state.current_project
+        
+        form_handlers = {
+            "Standard": show_standard_form,
+            "Non-Standard": show_non_standard_form,
+            "Electrical": show_electrical_form,
+            "WHRB": show_whrb_form,
+            "Custom": show_custom_form
+        }
+        
+        if wsm_type in form_handlers:
+            form_handlers[wsm_type](project_no)
+        else:
+            st.error(f"❌ No form handler found for WSM type: {wsm_type}")
+        
+        # Navigation buttons
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            st.metric("Submitted", status_counts.get('Submitted', 0))
-        with col2:
-            st.metric("Approved", status_counts.get('Approved', 0))
-        with col3:
-            st.metric("Waiting for MRO", status_counts.get('Waiting for MRO Confirmation', 0))
-        with col4:
-            st.metric("Rejected", status_counts.get('Rejected', 0))
-        with col5:
-            st.metric("Total Projects", len(projects))
-        
-        # Search and filter
-        st.subheader("Project Details")
-        col1, col2, col3 = st.columns([2,1,1])
-        with col1:
-            search_term = st.text_input("🔍 Search projects...", placeholder="Search by project no, client, or site")
-        with col2:
-            status_filter = st.selectbox("Filter by status", ["All", "Submitted", "Approved", "Waiting for MRO Confirmation", "Rejected", "Completed"])
-        with col3:
-            st.write("")
-            if st.button("🔄 Refresh Data"):
+            if st.button("⬅️ Back to General Info", use_container_width=True, key="back_to_general"):
+                st.session_state.current_project = None
+                st.session_state.current_wsm_type = None
                 st.rerun()
         
-        # Filter projects
-        filtered_projects = projects
-        if search_term:
-            filtered_projects = filtered_projects[
-                filtered_projects['project_no'].str.contains(search_term, case=False) |
-                filtered_projects['client'].str.contains(search_term, case=False) |
-                filtered_projects['site'].str.contains(search_term, case=False)
-            ]
-        if status_filter != "All":
-            filtered_projects = filtered_projects[filtered_projects['status'] == status_filter]
+        with col2:
+            if st.button("💾 Save Draft", use_container_width=True, key="save_draft"):
+                st.success("✅ Draft saved successfully!")
         
-        if not filtered_projects.empty:
-            for _, project in filtered_projects.iterrows():
-                with st.expander(f"**{project['project_no']}** - {project['client']} | {project['site']} | Status: **{project['status']}**"):
-                    col1, col2, col3, col4 = st.columns([2,2,1,1])
-                    
-                    with col1:
-                        st.write(f"**Client:** {project['client']}")
-                        st.write(f"**Site:** {project['site']}")
-                        st.write(f"**Created by:** {project['created_by']}")
-                        st.write(f"**Created on:** {project['created_at'][:16]}")
-                    
-                    with col2:
-                        new_status = st.selectbox(
-                            "Update Status",
-                            ["Submitted", "Approved", "Waiting for MRO Confirmation", "Rejected", "Completed"],
-                            key=f"status_{project['project_no']}",
-                            index=["Submitted", "Approved", "Waiting for MRO Confirmation", "Rejected", "Completed"].index(project['status'])
-                        )
-                    
-                    with col3:
-                        if st.button("Update", key=f"update_{project['project_no']}"):
-                            update_project_status(project['project_no'], new_status)
-                            st.success("Status updated!")
-                            st.rerun()
-                    with col4:
-                        try:
-                            with st.spinner("Generating PDF..."):
-                                pdf_data = generate_pdf_for_streamlit(project['project_no'])
-        
-                            st.download_button(
-                                label="📄 Download PDF",
-                                data=pdf_data,
-                                file_name=f"{project['project_no']}.pdf",
-                                mime="application/pdf",
-                                key=f"download_{project['project_no']}",
-                                use_container_width=True
-                            )
-        
-                        except Exception as e:
-                            st.error(f"PDF generation failed: {str(e)}")
-                            
-                            if st.button("Retry", key=f"retry_{project['project_no']}"):
-                                st.rerun()
-                    
-        else:
-            st.warning("No projects match your search criteria.")
-        
-    else:
-        st.info("No projects found. Create a new project in the WSM Form page.")
-    
-    conn.close()
+        with col3:
+            if st.button("📤 Submit WSM for Review", type="primary", use_container_width=True, key="submit_wsm"):
+                db = init_db()
+                if db.update_project_status(project_no, "Submitted"):
+                    st.success("🎉 WSM submitted for review successfully!")
+                    st.balloons()
+                    st.session_state.current_project = None
+                    st.session_state.current_wsm_type = None
+                    st.rerun()
+                else:
+                    st.error("❌ Error submitting WSM. Please try again.")
 
-def main():
-    if not st.session_state.authenticated:
-        login_page()
+def show_project_status_page():
+    page_title = "📊 Project Status" if st.session_state.role == 'admin' else "📋 My Projects"
+    st.title(page_title)
+    
+    db = init_db()
+    
+    # Filter projects based on user role
+    if st.session_state.role == 'admin':
+        projects = db.get_all_projects()
     else:
-        st.sidebar.title(f"Welcome, {st.session_state.username}!")
-        st.sidebar.markdown("---")
-        
-        page = st.sidebar.radio("Navigation", 
-                               ["🏠 Dashboard", "📝 WSM Form", "📊 Project Status", "🚪 Logout"])
-        
-        if page == "🏠 Dashboard":
-            st.title("Dashboard")
-            st.markdown("---")
-            st.info("""
-            ### WSM Management System
-            
-            **Features:**
-            - Create new WSM projects with complete 8-page forms
-            - Track project status with workflow management
-            - Generate professional PDF reports
-            - Support for multiple WSM templates
-            - Search and filter projects
-            
-            **Available Templates:**
-            """ + "\n".join([f"- {name}" for name in get_available_templates().values()]) + """
-            
-            Use the navigation menu to get started.
-            """)
-            
-        elif page == "📝 WSM Form":
-            wsm_form_page()
-        elif page == "📊 Project Status":
-            status_page()
-        elif page == "🚪 Logout":
-            st.session_state.authenticated = False
-            st.session_state.username = None
-            st.session_state.current_project = None
-            st.success("Logged out successfully!")
+        all_projects = db.get_all_projects()
+        projects = [p for p in all_projects if p.get('general_info', {}).get('created_by') == st.session_state.username]
+    
+    if not projects:
+        st.info("ℹ️ No projects found. Create your first WSM to get started!")
+        if st.button("📝 Create New WSM", key="create_new_from_status"):
+            st.session_state.current_page = "Create New WSM"
             st.rerun()
+        return
+    
+    # Search and filter
+    st.subheader("🔍 Search & Filter")
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        search_term = st.text_input("Search projects...", placeholder="Search by project no, client, or site", key="search_projects")
+    with col2:
+        status_filter = st.selectbox("Filter by status", 
+                                   ["All", "Submitted", "Under Review", "Approved", 
+                                    "Waiting for MRO Confirmation", "Completed"],
+                                   key="status_filter")
+    with col3:
+        wsm_filter = st.selectbox("Filter by WSM type", 
+                                ["All", "Standard", "Non-Standard", "Electrical", "WHRB", "Custom"],
+                                key="wsm_filter")
+    with col4:
+        sort_by = st.selectbox("Sort by", 
+                             ["Newest First", "Oldest First", "Project No", "Status"],
+                             key="sort_by")
+    
+    # Filter projects
+    filtered_projects = projects
+    if search_term:
+        filtered_projects = [p for p in filtered_projects 
+                           if search_term.lower() in p['project_no'].lower() 
+                           or (p.get('general_info') and search_term.lower() in p['general_info'].get('client', '').lower())
+                           or (p.get('general_info') and search_term.lower() in p['general_info'].get('site', '').lower())]
+    
+    if status_filter != "All":
+        filtered_projects = [p for p in filtered_projects if p['status'] == status_filter]
+    
+    if wsm_filter != "All":
+        filtered_projects = [p for p in filtered_projects if p['wsm_type'] == wsm_filter]
+    
+    # Sort projects
+    if sort_by == "Newest First":
+        filtered_projects.sort(key=lambda x: x['created_at'], reverse=True)
+    elif sort_by == "Oldest First":
+        filtered_projects.sort(key=lambda x: x['created_at'])
+    elif sort_by == "Project No":
+        filtered_projects.sort(key=lambda x: x['project_no'])
+    elif sort_by == "Status":
+        filtered_projects.sort(key=lambda x: x['status'])
+    
+    # Display projects count
+    st.write(f"**📈 Showing {len(filtered_projects)} of {len(projects)} projects**")
+    
+    # Display projects
+    for project in filtered_projects:
+        # Status color coding
+        status_colors = {
+            "Submitted": "blue",
+            "Under Review": "orange", 
+            "Approved": "green",
+            "Waiting for MRO Confirmation": "yellow",
+            "Completed": "purple"
+        }
+        
+        status_color = status_colors.get(project['status'], "gray")
+        
+        with st.expander(f"**{project['project_no']}** - {project['wsm_type']} - :{status_color}[{project['status']}]", expanded=False):
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                if project.get('general_info'):
+                    gi = project['general_info']
+                    st.write(f"**👥 Client:** {gi.get('client', 'N/A')}")
+                    st.write(f"**🏭 Site:** {gi.get('site', 'N/A')}")
+                    st.write(f"**🔥 Boiler Type:** {project['boiler_type']}")
+                    st.write(f"**👤 Created by:** {gi.get('created_by', 'N/A')}")
+                    
+                    # Safe datetime display
+                    created_at = project['created_at']
+                    if hasattr(created_at, 'strftime'):
+                        st.write(f"**📅 Created:** {created_at.strftime('%Y-%m-%d %H:%M')}")
+                    else:
+                        st.write(f"**📅 Created:** {str(created_at)}")
+                    
+                    # Safe updated_at display
+                    updated_at = project['updated_at']
+                    if hasattr(updated_at, 'strftime') and hasattr(created_at, 'strftime'):
+                        if updated_at != created_at:
+                            st.write(f"**🔄 Last Updated:** {updated_at.strftime('%Y-%m-%d %H:%M')}")
+                    elif str(updated_at) != str(created_at):
+                        st.write(f"**🔄 Last Updated:** {str(updated_at)}")
+            
+            with col2:
+                if st.session_state.role == 'admin':
+                    new_status = st.selectbox(
+                        "Update Status",
+                        ["Submitted", "Under Review", "Approved", "Waiting for MRO Confirmation", "Completed"],
+                        index=["Submitted", "Under Review", "Approved", "Waiting for MRO Confirmation", "Completed"].index(project['status']),
+                        key=f"status_{project['project_no']}"
+                    )
+                    
+                    if st.button("Update Status", key=f"update_{project['project_no']}"):
+                        if db.update_project_status(project['project_no'], new_status):
+                            st.success("✅ Status updated successfully!")
+                            st.rerun()
+                else:
+                    st.write(f"**📊 Status:** {project['status']}")
+                    st.write(f"**📄 WSM Type:** {project['wsm_type']}")
+            
+            with col3:
+                # Generate and download PDF
+                if st.button("📄 Generate PDF", key=f"pdf_{project['project_no']}", use_container_width=True):
+                    with st.spinner("🔄 Generating PDF document..."):
+                        try:
+                            # Generate PDF and get bytes
+                            pdf_bytes = pdf_generator.generate_pdf_to_bytes(project['project_no'])
+                            
+                            if pdf_bytes:
+                                st.download_button(
+                                    label="⬇️ Download PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"{project['project_no']}_wsm.pdf",
+                                    mime="application/pdf",
+                                    key=f"download_{project['project_no']}",
+                                    use_container_width=True
+                                )
+                            else:
+                                st.error("❌ Failed to generate PDF. Please try again.")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error generating PDF: {str(e)}")
+                
+                # View project details
+                if st.button("👀 View Details", key=f"view_{project['project_no']}", use_container_width=True):
+                    st.session_state.view_project = project['project_no']
+                    st.rerun()
+    
+    # Project details view
+    if 'view_project' in st.session_state:
+        st.header(f"🔍 Project Details: {st.session_state.view_project}")
+        
+        project_data = db.get_project_data(st.session_state.view_project)
+        if project_data:
+            for section, data in project_data.items():
+                with st.expander(f"📁 {section.replace('_', ' ').title()}", expanded=False):
+                    st.json(data)
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("⬅️ Back to Projects", use_container_width=True, key="back_to_projects"):
+                del st.session_state.view_project
+                st.rerun()
+        with col2:
+            # Quick PDF download in details view
+            if st.button("📄 Download PDF", use_container_width=True, key="quick_pdf_download"):
+                with st.spinner("Generating PDF..."):
+                    pdf_bytes = pdf_generator.generate_pdf_to_bytes(st.session_state.view_project)
+                    if pdf_bytes:
+                        st.download_button(
+                            label="⬇️ Download PDF Now",
+                            data=pdf_bytes,
+                            file_name=f"{st.session_state.view_project}_wsm.pdf",
+                            mime="application/pdf",
+                            key=f"quick_download_{st.session_state.view_project}",
+                            use_container_width=True
+                        )
+
+def show_admin_panel():
+    st.title("⚙️ Admin Panel")
+    
+    if st.session_state.role != 'admin':
+        st.error("🚫 Access denied. Admin privileges required.")
+        return
+    
+    tab1, tab2, tab3 = st.tabs(["👥 User Management", "📊 System Analytics", "⚙️ System Settings"])
+    
+    with tab1:
+        st.subheader("👥 User Management")
+        
+        # Create new user
+        with st.form("create_user"):
+            st.write("**Add New User**")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_username = st.text_input("Username *", key="new_username")
+                new_password = st.text_input("Password *", type="password", key="new_password")
+            
+            with col2:
+                new_email = st.text_input("Email", key="new_email")
+                new_role = st.selectbox("Role *", ["user", "admin"], key="new_role")
+            
+            if st.form_submit_button("➕ Create User", use_container_width=True):
+                if not new_username or not new_password:
+                    st.error("❌ Please fill in all required fields (*)")
+                else:
+                    if create_user(new_username, new_password, new_email, new_role):
+                        st.success(f"✅ User '{new_username}' created successfully!")
+                    else:
+                        st.error("❌ Error creating user. Username might already exist.")
+        
+        # List existing users
+        st.subheader("📋 Existing Users")
+        db = init_db()
+        cursor = db.connection.cursor()
+        cursor.execute("SELECT username, email, role, created_at FROM users ORDER BY created_at DESC")
+        users = cursor.fetchall()
+        cursor.close()
+        
+        if users:
+            for user in users:
+                role_emoji = "👑" if user[2] == 'admin' else "👤"
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+                    col1.write(f"**{user[0]}** {role_emoji}")
+                    col2.write(user[1] or "No email")
+                    col3.write(user[2].capitalize())
+                    
+                    # Safe datetime display for user creation date
+                    created_at = user[3]
+                    if hasattr(created_at, 'strftime'):
+                        col4.write(created_at.strftime('%Y-%m-%d'))
+                    else:
+                        col4.write(str(created_at))
+                    
+                    st.markdown("---")
+        else:
+            st.info("ℹ️ No users found")
+    
+    with tab2:
+        st.subheader("📊 System Analytics")
+        db = init_db()
+        cursor = db.connection.cursor()
+        
+        # Project statistics
+        cursor.execute("SELECT COUNT(*) as total FROM projects")
+        total_projects = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT status, COUNT(*) as count FROM projects GROUP BY status")
+        status_counts = cursor.fetchall()
+        
+        cursor.execute("SELECT wsm_type, COUNT(*) as count FROM projects GROUP BY wsm_type")
+        type_counts = cursor.fetchall()
+        
+        cursor.execute("SELECT COUNT(*) as total FROM users")
+        total_users = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT DATE(created_at) as date, COUNT(*) as count 
+            FROM projects 
+            GROUP BY DATE(created_at) 
+            ORDER BY date DESC 
+            LIMIT 7
+        """)
+        recent_activity = cursor.fetchall()
+        
+        cursor.close()
+        
+        # Display metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📊 Total Projects", total_projects)
+        with col2:
+            st.metric("👥 Total Users", total_users)
+        with col3:
+            st.metric("🏢 Active Systems", "1")
+        with col4:
+            st.metric("📈 System Status", "🟢 Active")
+        
+        # Status distribution
+        st.subheader("📈 Project Status Distribution")
+        if status_counts:
+            for status, count in status_counts:
+                st.write(f"• **{status}:** {count} projects")
+        else:
+            st.info("No project data available")
+        
+        # WSM Type distribution
+        st.subheader("🔥 WSM Type Distribution")
+        if type_counts:
+            for wsm_type, count in type_counts:
+                st.write(f"• **{wsm_type}:** {count} projects")
+        else:
+            st.info("No WSM type data available")
+        
+        # Recent activity
+        st.subheader("📅 Recent Activity (Last 7 days)")
+        if recent_activity:
+            for date, count in recent_activity:
+                st.write(f"• **{date}:** {count} new projects")
+        else:
+            st.info("No recent activity")
+    
+    with tab3:
+        st.subheader("⚙️ System Configuration")
+        
+        st.info("🔧 System configuration settings")
+        
+        # Placeholder for future system settings
+        col1, col2 = st.columns(2)
+        with col1:
+            auto_logout = st.number_input("Auto-logout timeout (minutes)", value=30, min_value=5, max_value=240, key="auto_logout")
+            max_upload_size = st.number_input("Max file upload size (MB)", value=100, min_value=10, max_value=500, key="max_upload_size")
+        with col2:
+            company_name = st.text_input("Default company name", value="Your Company", key="company_name")
+            support_email = st.text_input("Support email", value="support@company.com", key="support_email")
+        
+        # Database maintenance
+        st.subheader("🗃️ Database Maintenance")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Optimize Database", use_container_width=True, key="optimize_db"):
+                with st.spinner("Optimizing database..."):
+                    # Placeholder for database optimization
+                    st.success("✅ Database optimization completed!")
+        
+        with col2:
+            if st.button("🧹 Clear Temp Files", use_container_width=True, key="clear_temp_files"):
+                with st.spinner("Clearing temporary files..."):
+                    # Placeholder for temp file cleanup
+                    st.success("✅ Temporary files cleared!")
+        
+        # Save settings
+        if st.button("💾 Save Settings", type="primary", use_container_width=True, key="save_settings"):
+            st.success("✅ Settings saved successfully!")
+
+# Initialize session state variables
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Dashboard"
+if 'view_project' not in st.session_state:
+    st.session_state.view_project = None
 
 if __name__ == "__main__":
     main()

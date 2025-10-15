@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electrical Boiler Worksheet for Manufacturing (WSM)</title>
+    <style>
+        /* Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        body {
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+            background-color: #fff;
+            padding: 20px;
+        }
+        
+        /* Page Setup for PDF Generation */
+        @page {
+            size: A4;
+            margin: 0.5in;
+        }
+        
+        .page {
+            width: 8.5in;
+            min-height: 11in;
+            padding: 0.5in;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            page-break-after: always;
+            position: relative;
+        }
+        
+        /* Header Styles */
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .header h2 {
+            font-size: 16px;
+            font-weight: normal;
+        }
+        
+        .logo-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .company-logo {
+            max-height: 80px;
+            max-width: 200px;
+        }
+        
+        /* Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        
+        th, td {
+            border: 1px solid #333;
+            padding: 6px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        
+        .two-column-table {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        /* Section Styles */
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+        
+        .subsection {
+            margin-bottom: 15px;
+        }
+        
+        .subsection-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        /* Form Elements */
+        .data-field {
+            width: 100%;
+            border: none;
+            border-bottom: 1px dotted #999;
+            background: transparent;
+            padding: 2px 0;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        /* Page Footer */
+        .page-footer {
+            position: absolute;
+            bottom: 20px;
+            width: calc(100% - 1in);
+            text-align: center;
+            font-size: 10px;
+            color: #666;
+        }
+        
+        /* Signature Section */
+        .signature-section {
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .signature-line {
+            width: 200px;
+            border-top: 1px solid #333;
+            text-align: center;
+            padding-top: 5px;
+        }
+        
+        /* Responsive Adjustments */
+        @media screen and (max-width: 900px) {
+            body {
+                padding: 10px;
+            }
+            
+            .page {
+                width: 100%;
+                padding: 20px;
+            }
+            
+            .two-column-table {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Page 1 -->
+    <div class="page">
+        <div class="header">
+            <div class="logo-container">
+                <img src="{{ company_logo }}" alt="Company Logo" class="company-logo">
+                <div>
+                    <h1>Worksheet for Manufacturing (WSM)</h1>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <table>
+                <tr>
+                    <th>Client:</th>
+                    <td><span class="data-field">{{ client }}</span></td>
+                    <th>Consultant:</th>
+                    <td><span class="data-field">{{ consultant }}</span></td>
+                </tr>
+                <tr>
+                    <th>Branch Engineer:</th>
+                    <td><span class="data-field">{{ branch_engineer }}</span></td>
+                    <th>Division Engineer:</th>
+                    <td><span class="data-field">{{ division_engineer }}</span></td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="section">
+            <table>
+                <tr>
+                    <th>Site:</th>
+                    <td><span class="data-field">{{ site }}</span></td>
+                    <th>Altitude from MSL:</th>
+                    <td><span class="data-field">{{ altitude }}</span></td>
+                </tr>
+                <tr>
+                    <th>Temp Min / Max:</th>
+                    <td><span class="data-field">{{ temp_min_max }}</span></td>
+                    <th>Voltage Details:</th>
+                    <td>
+                        <p>Power Voltage: <span class="data-field">{{ power_voltage }}</span></p>
+                        <p>Control Voltage: <span class="data-field">{{ control_voltage }}</span></p>
+                        <p>Frequency: <span class="data-field">{{ frequency }}</span></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Customer PO #:</th>
+                    <td><span class="data-field">{{ customer_po }}</span></td>
+                    <th>Date:</th>
+                    <td><span class="data-field">{{ po_date }}</span></td>
+                </tr>
+                <tr>
+                    <th>Delivery Date:</th>
+                    <td><span class="data-field">{{ delivery_date }}</span></td>
+                    <th>Special Delivery (Yes/No):</th>
+                    <td><span class="data-field">{{ special_delivery }}</span></td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">Terms of Payment</div>
+            <table>
+                <tr>
+                    <th>Supply:</th>
+                    <td><span class="data-field">{{ supply_payment_terms }}</span></td>
+                </tr>
+            </table>
+            
+            <table>
+                <tr>
+                    <th>Direct orders (Yes/No):</th>
+                    <td><span class="data-field">{{ direct_orders }}</span></td>
+                    <th>Balance of Plant:</th>
+                    <td><span class="data-field">{{ balance_of_plant }}</span></td>
+                </tr>
+                <tr>
+                    <th>FM Role:</th>
+                    <td><span class="data-field">{{ fm_role }}</span></td>
+                    <th>Inspection:</th>
+                    <td><span class="data-field">{{ inspection }}</span></td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="section">
+            <p><strong>Price Basis:</strong> <span class="data-field">{{ price_basis }}</span></p>
+            <p><strong>Commission:</strong> <span class="data-field">{{ commission }}</span></p>
+        </div>
+        
+        <div class="page-footer">Page 1 of 4</div>
+    </div>
+    
+    <!-- Page 2 -->
+    <div class="page">
+        <div class="header">
+            <div class="logo-container">
+                <img src="{{ company_logo }}" alt="Company Logo" class="company-logo">
+                <div>
+                    <h1>Supply/Services</h1>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="subsection">
+                <div class="subsection-title">1 Boiler --- 1no</div>
+                <table>
+                    <tr>
+                        <th>Boiler Capacity (F&A100 Deg C)</th>
+                        <td><span class="data-field">{{ boiler_capacity }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Design Pressure</th>
+                        <td><span class="data-field">{{ design_pressure }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Quantity</th>
+                        <td><span class="data-field">{{ boiler_quantity }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Heater Element</th>
+                        <td><span class="data-field">{{ heater_element }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Boiler Type (Modular/Non Modular)</th>
+                        <td><span class="data-field">{{ boiler_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Boiler configuration (..Nos Working & ...No Stand by)</th>
+                        <td><span class="data-field">{{ boiler_configuration }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Pumps</th>
+                        <td><span class="data-field">{{ pumps }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Pump Configuration</th>
+                        <td><span class="data-field">{{ pump_configuration }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Motors</th>
+                        <td><span class="data-field">{{ motors }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Valves</th>
+                        <td><span class="data-field">{{ valves }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Flanges</th>
+                        <td><span class="data-field">{{ flanges }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Insulation & Cladding</th>
+                        <td><span class="data-field">{{ insulation_cladding }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Insulation Density</th>
+                        <td><span class="data-field">{{ insulation_density }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Insulation thickness</th>
+                        <td><span class="data-field">{{ insulation_thickness }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Cladding Material</th>
+                        <td><span class="data-field">{{ cladding_material }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Orientation (Std./Mirror)</th>
+                        <td><span class="data-field">{{ orientation }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Boiler Design (IBR/BS/EN)</th>
+                        <td><span class="data-field">{{ boiler_design }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Specific Design Approvals (DOSH etc.)</th>
+                        <td><span class="data-field">{{ specific_design_approvals }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Emissions (Std./Non-Std.)</th>
+                        <td><span class="data-field">{{ emissions }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">2 Water Level Control --- 1 Set</div>
+                <table>
+                    <tr>
+                        <th>Std. - WLC type /Single/Two element control</th>
+                        <td><span class="data-field">{{ wlc_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Type of water level control (Std. WLC type /VFD based/Control valve)</th>
+                        <td><span class="data-field">{{ water_level_control_type }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">3 Electric Heater --- 1 set</div>
+                <table>
+                    <tr>
+                        <th>Type</th>
+                        <td><span class="data-field">{{ electric_heater_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Make</th>
+                        <td><span class="data-field">{{ electric_heater_make }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Model</th>
+                        <td><span class="data-field">{{ electric_heater_model }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Quantity</th>
+                        <td><span class="data-field">{{ electric_heater_quantity }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Modulation (On-Off/ High Low/ 3 Stage/ Stepless)</th>
+                        <td><span class="data-field">{{ electric_heater_modulation }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>VFD (Yes/No) and Details</th>
+                        <td><span class="data-field">{{ electric_heater_vfd }}</span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="page-footer">Page 2 of 4</div>
+    </div>
+    
+    <!-- Page 3 -->
+    <div class="page">
+        <div class="header">
+            <div class="logo-container">
+                <img src="{{ company_logo }}" alt="Company Logo" class="company-logo">
+                <div>
+                    <h1>Supply/Services (Continued)</h1>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="subsection">
+                <div class="subsection-title">4 Control Panel --- 1no</div>
+                <table>
+                    <tr>
+                        <th>Panel (Boiler mounted/Floor Standing)</th>
+                        <td><span class="data-field">{{ control_panel_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Panel (STD/ Compartmentalized)</th>
+                        <td><span class="data-field">{{ panel_configuration }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>PLC - Yes/No</th>
+                        <td><span class="data-field">{{ plc }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>PLC Make</th>
+                        <td><span class="data-field">{{ plc_make }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>IP Rating</th>
+                        <td><span class="data-field">{{ ip_rating }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">5 Electrical</div>
+                <table>
+                    <tr>
+                        <th>Cabling supply - FM Factory/Drop shipment/Not in scope</th>
+                        <td><span class="data-field">{{ cabling_supply }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Cable trays - FM Factory/Drop shipment/Not in scope</th>
+                        <td><span class="data-field">{{ cable_trays }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Other Requirement/Special Instructions</th>
+                        <td><span class="data-field">{{ electrical_other_requirements }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">6 Services</div>
+                <table>
+                    <tr>
+                        <th>P&ID, BHL, GA Approval/Submission (Yes/No)</th>
+                        <td><span class="data-field">{{ drawing_approval }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Control Panel Drawing Approval (Yes/No)</th>
+                        <td><span class="data-field">{{ control_panel_drawing_approval }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Special Documentation, If any</th>
+                        <td><span class="data-field">{{ special_documentation }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>IBR Approval (PFO/Steam Test/only Folder)</th>
+                        <td><span class="data-field">{{ ibr_approval }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Site Services</th>
+                        <td><span class="data-field">{{ site_services }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Unloading & Leading</th>
+                        <td><span class="data-field">{{ unloading_leading }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Erection & Commissioning</th>
+                        <td><span class="data-field">{{ erection_commissioning }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Supervision</th>
+                        <td><span class="data-field">{{ supervision }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Other Requirement/Special Instructions</th>
+                        <td><span class="data-field">{{ services_other_requirements }}</span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="page-footer">Page 3 of 4</div>
+    </div>
+    
+    <!-- Page 4 -->
+    <div class="page">
+        <div class="header">
+            <div class="logo-container">
+                <img src="{{ company_logo }}" alt="Company Logo" class="company-logo">
+                <div>
+                    <h1>Other Details</h1>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="subsection">
+                <div class="subsection-title">DOCUMENTATION</div>
+                <table>
+                    <tr>
+                        <th>General Arrangement Drawing (GA) (Yes/No)</th>
+                        <td><span class="data-field">{{ ga_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Piping and Instrumentation Drawing (P & ID) (Yes/No)</th>
+                        <td><span class="data-field">{{ p_id_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Boiler House Layout (BHL) (Yes/No)</th>
+                        <td><span class="data-field">{{ bhl_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Piping Drawing (Yes/No)</th>
+                        <td><span class="data-field">{{ piping_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Qualification Documents (Yes/No)</th>
+                        <td><span class="data-field">{{ qualification_documents }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Chimney drawing (Yes/No)</th>
+                        <td><span class="data-field">{{ chimney_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Chimney drawing (Schematic/ Fabrication)</th>
+                        <td><span class="data-field">{{ chimney_drawing_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Feed water Tank drawing (Yes/No)</th>
+                        <td><span class="data-field">{{ feed_water_tank_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Feed water Tank capacity</th>
+                        <td><span class="data-field">{{ feed_water_tank_capacity }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Day Oil Tank drawing (Yes/No)</th>
+                        <td><span class="data-field">{{ day_oil_tank_drawing }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Day Oil Tank capacity</th>
+                        <td><span class="data-field">{{ day_oil_tank_capacity }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">GUARANTEES</div>
+                <table>
+                    <tr>
+                        <th>Fuel Consumption (Yes/No)</th>
+                        <td><span class="data-field">{{ fuel_consumption_guarantee }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Efficiency on NCV Basis (Yes/No)</th>
+                        <td><span class="data-field">{{ efficiency_ncv_guarantee }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="subsection">
+                <div class="subsection-title">DOCUMENTS ENCLOSED</div>
+                <table>
+                    <tr>
+                        <th>Customer LOI (Yes/No)</th>
+                        <td><span class="data-field">{{ customer_loi }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Customer Purchase Order (Yes/No)</th>
+                        <td><span class="data-field">{{ customer_purchase_order }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Customer's Layout (Yes/No)</th>
+                        <td><span class="data-field">{{ customer_layout }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Any other documents</th>
+                        <td><span class="data-field">{{ other_documents }}</span></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="signature-section">
+                <div class="signature-line">
+                    <p>Sign: <span class="data-field">{{ signature }}</span></p>
+                </div>
+                <div class="signature-line">
+                    <p>Date: <span class="data-field">{{ signature_date }}</span></p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="page-footer">Page 4 of 4</div>
+    </div>
+</body>
+</html>
